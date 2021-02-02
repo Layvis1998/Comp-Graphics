@@ -1,0 +1,3 @@
+/home/Layvis/Documents/Computer graphics/04_sample1/build/CMakeFiles/rebuild_cache.dir
+/home/Layvis/Documents/Computer graphics/04_sample1/build/CMakeFiles/main.dir
+/home/Layvis/Documents/Computer graphics/04_sample1/build/CMakeFiles/edit_cache.dir
