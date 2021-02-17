@@ -1,0 +1,334 @@
+#version 330 core
+out vec4 FragColor;
+in vec4 Vertex_to_fragment;
+
+uniform vec3 eye;
+uniform vec3 lbp;      //left bottom point     
+uniform vec3 ltp;      //left top point
+uniform vec3 rbp;      //right bottom point
+uniform vec3 rtp;      //right top point
+
+/////////////////////////////Auxiliary variables/////////////////////////////////
+struct ray_connection_info
+{
+  float distance;
+  int object_type;
+  int object_number;
+};
+ray_connection_info mindist_info;
+ray_connection_info backupdist_info;
+
+const float shadow_eps = 0.05;
+const float collision_const = 0.01;
+const float max_view = 180;
+const int reflect_amount = 7;
+float reflect_cf[reflect_amount]; 
+vec3 inner_col[reflect_amount]; 
+bool ray_connected;
+
+
+
+
+///////////////////////////////Space description////////////////////////////////    
+struct light_bulb
+{
+  vec3 location;
+  vec3 color;
+};
+
+const int light_amount = 2;
+
+light_bulb lb[light_amount] = light_bulb[]
+(
+  light_bulb(vec3(0, 0, 39), vec3(0.28, 0.93, 0.33)),
+  light_bulb(vec3(0, 0, -39), vec3(0.88, 0.33, 0.11))
+  //light_bulb(vec3(0, -39, 0), vec3(0.11, 0.17, 0.99)),
+  //light_bulb(vec3(0, 39, 0), vec3(0.61, 0.61, 0.11)),
+  //light_bulb(vec3(39, 0, 0), vec3(0, 0.88, 0.72))  
+);
+
+struct sphere
+{
+  float radius;
+  vec3 center;
+  vec3 color;
+  float specular_coeff;
+};
+
+const int sphere_amount = 5;                                     
+sphere s[sphere_amount] = sphere[]
+(
+  sphere(1.9, vec3(0, 1.1, 10), vec3(1.0, 0.0, 0.0), 0.6),
+  sphere(1.7, vec3(-30, -17, 5), vec3(0.7, 0.0, 0.9), 0.6),
+  sphere(0.6, vec3(1.1, 0.1, 8), vec3(0.5, 0.5, 0.0), 0.9),
+  //sphere(2.5, vec3(7, 7, 11), vec3(0.5, 0.0, 0.5), 0.5),  
+  sphere(1, vec3(5, 2, 1), vec3(0, 0.8, 0.8), 0.5),
+  //sphere(2.9, vec3(-5, -1, 7), vec3(0, 1.0, 0.5), 0.8),
+  //sphere(1.3, vec3(7, -9, -3), vec3(0.6, 0.3, 0.33), 0.2),
+  //sphere(3.1, vec3(-3, -5, -9), vec3(0.12, 0.9, 0.65), 0.3),
+  //sphere(5, vec3(-30, -5, -11), vec3(0.25, 0.15, 0.75), 0.8),
+  //sphere(3, vec3(0, 10, 0), vec3(1.0, 0.2, 0.35), 0.3),
+  //sphere(1.7, vec3(-10, 0, -10), vec3(0.1, 0.8, 0.35), 0.4),
+  //sphere(1.85, vec3(32, 32, -10), vec3(0.55, 0.15, 0.25), 0.5),
+  //sphere(0.85, vec3(-37, 33, 34), vec3(0.55, 0.45, 0.25), 0.7),
+  //sphere(0.95, vec3(-34, 0, 34), vec3(0.65, 0.15, 0.28), 0.3),  
+  //sphere(2.2, vec3(7, 29, 34), vec3(0.65, 0.35, 0.9), 1.0),  
+  //sphere(1.35, vec3(17, -9, -7), vec3(0.3, 0.05, 0.45), 0.2),
+  //sphere(1.35, vec3(17, 9, 12), vec3(1.0, 1.0, 1.0), 0.6),
+  sphere(2.35, vec3(-18, 1, 4), vec3(0.3, 0.5, 1.0), 0.6)
+  
+  //sphere(2.5, vec3(25, -5, 0), vec3(0.35, 0.05, 0.1), 0.4) 
+);
+
+struct box
+{
+  vec3 location;
+  vec3 size;
+  vec3 color;
+  float specular_coeff;
+  float reflect_coeff;
+};
+
+const int box_amount = 7;
+box b[box_amount]= box[]
+(
+  box(vec3(20, 1, 5), vec3(0.1, 5, 3.5), vec3(1.0, 0.1, 0.7), 0.0, 0.25),
+  box(vec3(-12, 0, 3), vec3(0.1, 4, 6), vec3(1.0, 0.1, 0.7), 0.0, 1.0),
+  //box(vec3(-25, -15, 2), vec3(5, 7, 0.15), vec3(0.2, 1.0, 0.45), 0.0, 0.3),
+    
+  box(vec3(0, 0, 40), vec3(40, 40 , 0.15), vec3(0.25, 0.85, 0.3), 0.7, 0.0),
+  box(vec3(0, 0, -40), vec3(40, 40, 0.15), vec3(0.8, 0.3, 0.1), 0.7, 0.0),
+  box(vec3(0, -40, 0), vec3(40, 0.15, 40), vec3(0.1, 0.15, 0.9), 0.7, 0.0),
+  box(vec3(0, 40, 0), vec3(40, 0.15, 40), vec3(0.55, 0.55, 0.1), 0.7, 0.0),
+  box(vec3(40, 0, 0), vec3(0.15, 40, 40), vec3(0, 0.8, 0.65), 0.7, 0.0)
+  
+
+
+);
+
+
+//////////////////////////Distance computing functions//////////////////////////
+
+float DstToSphere (vec3 p, sphere s1)
+{
+  return length (s1.center - p) - s1.radius;
+}
+
+float DstToBox (vec3 p, vec3 b)
+{
+  vec3 q = abs(p) - b;
+  return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
+}
+
+
+//indexes: 0 - sphere, 1 - box
+float DistanceToNearestSurface(vec3 position)
+{
+  float min_dist = DstToSphere (position, s[0]);
+  float dist = min_dist;
+  int object = 0;
+  int number = 0;
+  for (int i = 1; i < sphere_amount; i++)
+  {
+    dist = DstToSphere (position, s[i]);
+    if (min_dist > dist)
+    {
+      min_dist = dist;
+      number = i;
+    }
+  }
+
+  for (int i = 0; i < box_amount; i++)
+  {
+    dist = DstToBox (position - b[i].location, b[i].size);
+    if (min_dist > dist)
+    {
+      min_dist = dist;
+      object = 1;
+      number = i;
+    }
+  }
+  mindist_info.distance = min_dist;
+  mindist_info.object_type = object;
+  mindist_info.object_number = number;
+  return min_dist;
+}
+
+
+vec3 SurfaceNormal(vec3 p)
+{
+  float d0 = DistanceToNearestSurface(p);
+  const vec2 epsilon = vec2(0.00005, 0);
+  vec3 d1 = vec3
+  ( 
+    DistanceToNearestSurface(p-epsilon.xyy),
+    DistanceToNearestSurface(p-epsilon.yxy),
+    DistanceToNearestSurface(p-epsilon.yyx)
+  );
+  return normalize(d0 - d1);
+}
+
+
+vec3 RayMarch(vec3 direction_vec, vec3 point)
+{
+  float view = length(direction_vec);
+  vec3 moving_dir = (direction_vec) / view;
+  ray_connected = true;  
+  mindist_info.distance = 5;
+  mindist_info.object_type = 0;
+  mindist_info.object_number = 0;
+
+
+  while (mindist_info.distance > collision_const)
+  {
+    DistanceToNearestSurface(point);        
+    point = point + moving_dir * mindist_info.distance;
+    view = view + mindist_info.distance;
+    
+    if (view > max_view)
+    {
+      ray_connected = false;
+      break;
+    }   
+  }
+  return point;
+}
+
+float LightPassed(vec3 light, vec3 point)
+{
+  vec3 moving_dir = normalize(point - light);
+  float LightPointDist = length(point - light);
+  DistanceToNearestSurface(light); 
+
+  float view = 0;
+  while ( (abs(LightPointDist - view) >= shadow_eps) &&
+    (mindist_info.distance > collision_const) && (view <= max_view) )
+  {       
+    light = light + mindist_info.distance * moving_dir;
+    view += mindist_info.distance;
+    DistanceToNearestSurface(light); 
+  }
+  
+  if (length(point - light) < shadow_eps)
+    return 1.0;
+  else
+    return 0.0;
+  //return 1 - step(0, length(point - light)- shadow_eps);
+  
+
+}
+
+vec3 Phong(vec3 ray_way)
+{  
+  vec3 color = vec3(0, 0, 0);
+
+  if (ray_connected == true)
+  {
+    vec3 object_color = vec3(0, 0, 0);
+    float spec_coeff;
+    vec3 ambient = vec3(0.05, 0.05, 0.05);
+    backupdist_info = mindist_info;
+
+    
+    if (mindist_info.object_type == 0)
+    {
+      object_color = s[mindist_info.object_number].color;
+      spec_coeff = s[mindist_info.object_number].specular_coeff;
+    }
+    else if (mindist_info.object_type == 1)
+    {
+      object_color = b[mindist_info.object_number].color;
+      spec_coeff = b[mindist_info.object_number].specular_coeff;
+    };
+    
+    for (int i = 0; i < light_amount; i++)
+	  {  
+      vec3 light_vec = normalize(lb[i].location - ray_way);
+      vec3 normal = SurfaceNormal(ray_way);
+      
+      float shadow_bool = LightPassed(lb[i].location, ray_way);
+      if (shadow_bool == 1.0)
+      {
+        float diff = max(dot(normal, light_vec), 0) * shadow_bool;  // dot - scalar product
+        vec3 diffuse = diff * lb[i].color;
+        color.xyz +=  diffuse * object_color;
+      }
+
+     			   
+      vec3 viewdir = normalize(eye - ray_way);
+      vec3 reflect_vec = reflect(-light_vec, normal);
+      float spec_val = pow(max(dot(viewdir, reflect_vec), 0.0), 64);
+      vec3 specular = 0.5 * spec_val * lb[i].color;    
+
+      color.xyz +=  specular * object_color;
+    }
+    color.xyz += ambient * object_color;
+    mindist_info = backupdist_info;
+  
+  }
+  return color;
+}
+
+
+void main()
+{
+  //important variables
+  vec4 crd = Vertex_to_fragment;
+  vec3 f_lbp = lbp + eye;
+  vec3 f_ltp = ltp + eye;
+  vec3 f_rbp = rbp + eye;
+  vec3 f_rtp = rtp + eye;
+
+  vec3 new_max_x = (f_rtp + f_rbp) / 2;
+  vec3 new_min_x = (f_ltp + f_lbp) / 2;
+  vec3 new_max_y = (f_ltp + f_rtp) / 2;
+  vec3 new_min_y = (f_lbp + f_rbp) / 2;
+  vec3 new_x = (new_max_x - new_min_x) * (crd.x - (-1)) / 2;
+  vec3 new_y = (new_max_y - new_min_y) * (crd.y - (-1)) / 2;
+     
+  vec3 ray_way = (f_lbp + new_x + new_y);
+  vec3 ray_march_dir = ray_way - eye;
+
+
+  ray_way = RayMarch(ray_march_dir, ray_way);  
+
+  FragColor = vec4(0, 0, 0, 1.0);
+  FragColor.xyz = Phong(ray_way);
+
+  if ((mindist_info.object_type == 1) && 
+    (b[mindist_info.object_number].reflect_coeff > 0.0))
+  {  
+    int cur_reflect = 0;
+    reflect_cf[cur_reflect] = b[mindist_info.object_number].reflect_coeff;
+    inner_col[cur_reflect] = (1 - reflect_cf[cur_reflect]) * Phong(ray_way); 
+    vec3 normal = SurfaceNormal(ray_way);
+	  ray_march_dir = reflect(ray_march_dir, normal);
+	  ray_way += ray_march_dir * collision_const * 2;
+	  ray_way = RayMarch(ray_march_dir, ray_way);
+    cur_reflect += 1;
+    
+    while ((mindist_info.object_type == 1) &&
+      (b[mindist_info.object_number].reflect_coeff > 0.0) &&
+      (cur_reflect < reflect_amount - 1))
+    {
+      reflect_cf[cur_reflect] = b[mindist_info.object_number].reflect_coeff;
+      inner_col[cur_reflect] =  Phong(ray_way); 
+	    vec3 normal = SurfaceNormal(ray_way);
+	    ray_march_dir = reflect(ray_march_dir, normal);
+	    ray_way += ray_march_dir * collision_const * 2;
+	    ray_way = RayMarch(ray_march_dir, ray_way);
+    
+      cur_reflect += 1;
+    }
+    reflect_cf[cur_reflect] = 1.0;
+    FragColor.xyz = Phong(ray_way);
+    for (int j = cur_reflect; j >= 1; j--)
+    {
+      FragColor.xyz = FragColor.xyz * reflect_cf[j - 1];
+      FragColor.xyz += inner_col[j - 1] * (1 - reflect_cf[j - 1]);
+    }
+  
+  }
+      
+  FragColor = vec4(FragColor.xyz, 1.0);
+}

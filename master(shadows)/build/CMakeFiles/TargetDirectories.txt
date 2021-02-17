@@ -1,0 +1,3 @@
+/media/Layvis/Transcend1/Прошлого архив/2020-/5)2021/2)Февраль/7)17 февраля/Computer graphics/master(shadows)/build/CMakeFiles/rebuild_cache.dir
+/media/Layvis/Transcend1/Прошлого архив/2020-/5)2021/2)Февраль/7)17 февраля/Computer graphics/master(shadows)/build/CMakeFiles/main.dir
+/media/Layvis/Transcend1/Прошлого архив/2020-/5)2021/2)Февраль/7)17 февраля/Computer graphics/master(shadows)/build/CMakeFiles/edit_cache.dir
